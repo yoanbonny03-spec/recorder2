@@ -8,7 +8,7 @@
 <style>
   :root {
     --bg: #0a0a0a; --surface: #111111; --border: #222222; --accent: #e8ff47;
-    --text: #f0f0f0; --muted: #555555; --recording: #ff4747;
+    --text: #f0f0f0; --muted: #555555; --recording: #ff4747; --paused: #ff9900;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; display: flex; flex-direction: column; align-items: center; padding: 24px; }
@@ -21,7 +21,12 @@
   .btn:active { transform: scale(0.98); }
   .hidden { display: none; }
   #timer { font-family: 'IBM Plex Mono', monospace; font-size: 64px; margin: 20px 0; font-weight: 500; }
-  .status { color: var(--recording); font-size: 12px; font-weight: 600; margin-bottom: 20px; }
+  .status { font-size: 12px; font-weight: 600; margin-bottom: 20px; transition: color 0.3s; }
+  .status.recording { color: var(--recording); }
+  .status.paused { color: var(--paused); }
+  .btn-pause { width: 100%; background: var(--accent); color: #000; border: none; border-radius: 12px; padding: 18px; font-weight: 600; font-size: 16px; cursor: pointer; transition: transform 0.2s, background 0.3s; margin-bottom: 12px; }
+  .btn-pause:active { transform: scale(0.98); }
+  .btn-pause.paused { background: var(--paused); }
 </style>
 </head>
 <body>
@@ -34,8 +39,9 @@
   </div>
 
   <div id="step2" class="card hidden">
-    <div id="recordStatus" class="status">● ИДЕТ ЗАПИСЬ</div>
+    <div id="recordStatus" class="status recording">● ИДЕТ ЗАПИСЬ</div>
     <div id="timer">00:00</div>
+    <button id="pauseBtn" class="btn-pause" onclick="togglePause()">ПАУЗА</button>
     <button class="btn" style="background: #ff4747; color: white;" onclick="stopRecording()">ЗАВЕРШИТЬ И ОТПРАВИТЬ</button>
   </div>
 
@@ -49,9 +55,19 @@
     let audioChunks = [];
     let seconds = 0;
     let timerInterval;
+    let isPaused = false;
     
     // Ссылка на ваш НОВЫЙ n8n аккаунт:
     const webhookUrl = "https://yoanbonny.app.n8n.cloud/webhook/9accf4f9-84f9-431f-9acd-3aa18899585f";
+
+    function startTimer() {
+      timerInterval = setInterval(() => {
+        seconds++;
+        let m = Math.floor(seconds/60).toString().padStart(2,'0');
+        let s = (seconds%60).toString().padStart(2,'0');
+        document.getElementById('timer').textContent = `${m}:${s}`;
+      }, 1000);
+    }
 
     function startRecording() {
       const id = document.getElementById('dealIdInput').value;
@@ -61,22 +77,44 @@
         mediaRecorder = new MediaRecorder(stream);
         mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
         mediaRecorder.onstop = () => uploadData(id);
-        
+
         mediaRecorder.start();
+        isPaused = false;
         document.getElementById('step1').classList.add('hidden');
         document.getElementById('step2').classList.remove('hidden');
-        
-        timerInterval = setInterval(() => {
-          seconds++;
-          let m = Math.floor(seconds/60).toString().padStart(2,'0');
-          let s = (seconds%60).toString().padStart(2,'0');
-          document.getElementById('timer').textContent = `${m}:${s}`;
-        }, 1000);
+
+        startTimer();
       }).catch(err => alert('Ошибка доступа к микрофону'));
+    }
+
+    function togglePause() {
+      if (!mediaRecorder) return;
+
+      const statusEl = document.getElementById('recordStatus');
+      const pauseBtn = document.getElementById('pauseBtn');
+
+      if (isPaused) {
+        mediaRecorder.resume();
+        isPaused = false;
+        statusEl.textContent = '● ИДЕТ ЗАПИСЬ';
+        statusEl.className = 'status recording';
+        pauseBtn.textContent = 'ПАУЗА';
+        pauseBtn.classList.remove('paused');
+        startTimer();
+      } else {
+        mediaRecorder.pause();
+        isPaused = true;
+        clearInterval(timerInterval);
+        statusEl.textContent = '⏸ ПАУЗА';
+        statusEl.className = 'status paused';
+        pauseBtn.textContent = 'ПРОДОЛЖИТЬ';
+        pauseBtn.classList.add('paused');
+      }
     }
 
     function stopRecording() {
       if (mediaRecorder) {
+        if (isPaused) mediaRecorder.resume();
         mediaRecorder.stop();
         clearInterval(timerInterval);
         document.getElementById('step2').classList.add('hidden');
