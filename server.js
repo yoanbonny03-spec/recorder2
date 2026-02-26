@@ -8,7 +8,25 @@ const path = require('path');
 const ffmpeg = require('fluent-ffmpeg');
 
 const app = express();
-const upload = multer({ dest: '/tmp/uploads/' });
+
+// Save uploaded files with proper extension based on MIME type
+const storage = multer.diskStorage({
+  destination: '/tmp/uploads/',
+  filename: (req, file, cb) => {
+    const mimeToExt = {
+      'audio/webm': '.webm',
+      'audio/ogg': '.ogg',
+      'audio/mp4': '.mp4',
+      'audio/mpeg': '.mp3',
+      'audio/wav': '.wav',
+      'audio/x-m4a': '.m4a',
+      'video/webm': '.webm',
+    };
+    const ext = mimeToExt[file.mimetype] || '.webm';
+    cb(null, Date.now() + '-' + Math.random().toString(36).substr(2, 9) + ext);
+  },
+});
+const upload = multer({ storage });
 
 // ── Clients ──────────────────────────────────────────────────────────────────
 
@@ -39,17 +57,19 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
     return res.status(400).json({ error: 'dealId and audio are required' });
   }
 
+  const mp3Path = audioPath + '.mp3';
+
   try {
     console.log(`[${dealId}] Starting pipeline...`);
+    console.log(`[${dealId}] Audio file: ${audioPath} (${req.file.mimetype})`);
 
-    // 1. Transcribe with Whisper
+    // 1. Transcribe with Whisper (file already has correct extension)
     console.log(`[${dealId}] Transcribing...`);
     const transcription = await transcribeAudio(audioPath);
     console.log(`[${dealId}] Transcription done: ${transcription.slice(0, 80)}...`);
 
     // 2. Convert audio to MP3 and upload to Google Drive
-    console.log(`[${dealId}] Converting audio to MP3...`);
-    const mp3Path = audioPath + '.mp3';
+    console.log(`[${dealId}] Converting to MP3...`);
     await convertToMp3(audioPath, mp3Path);
     console.log(`[${dealId}] Uploading audio to Drive...`);
     const audioFileName = `deal_${dealId}_audio_${Date.now()}.mp3`;
@@ -80,8 +100,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
   } catch (err) {
     console.error(`[${dealId}] Error:`, err.message);
     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-    const mp3Cleanup = audioPath + '.mp3';
-    if (fs.existsSync(mp3Cleanup)) fs.unlinkSync(mp3Cleanup);
+    if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
     res.status(500).json({ error: err.message });
   }
 });
@@ -90,6 +109,15 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function transcribeAudio(filePath) {
+  const response = await openai.audio.transcriptions.create({
+    file: fs.createReadStream(filePath),
+    model: 'whisper-1',
+    language: 'ru',
+  });
+  return response.text;
+}
 
 function convertToMp3(inputPath, outputPath) {
   return new Promise((resolve, reject) => {
@@ -100,21 +128,6 @@ function convertToMp3(inputPath, outputPath) {
       .on('error', reject)
       .save(outputPath);
   });
-}
-
-async function transcribeAudio(filePath) {
-  const mp3Path = filePath + '.whisper.mp3';
-  await convertToMp3(filePath, mp3Path);
-  try {
-    const response = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(mp3Path),
-      model: 'whisper-1',
-      language: 'ru',
-    });
-    return response.text;
-  } finally {
-    if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
-  }
 }
 
 async function uploadToDrive(filePath, fileName, mimeType, folderId) {
