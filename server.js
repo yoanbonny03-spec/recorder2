@@ -35,6 +35,38 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// OAuth2 helper: get a new refresh token
+app.get('/auth-google', (req, res) => {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['https://www.googleapis.com/auth/drive.file'],
+  });
+  res.redirect(url);
+});
+
+app.get('/auth-google/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Missing code');
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+  const { tokens } = await oauth2Client.getToken(code);
+  res.send(`
+    <h2>New refresh token received!</h2>
+    <p>Copy this value and set it as <b>GOOGLE_REFRESH_TOKEN</b> in Railway:</p>
+    <pre style="background:#f0f0f0;padding:12px;word-break:break-all">${tokens.refresh_token || '(no new token — use existing)'}</pre>
+    <p>Access token (for reference): <code>${tokens.access_token}</code></p>
+  `);
+});
+
 app.post('/upload', upload.single('audio'), async (req, res) => {
   const dealId = req.body.dealId;
   const audioPath = req.file?.path;
