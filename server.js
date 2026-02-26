@@ -5,6 +5,7 @@ const { google } = require('googleapis');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const ffmpeg = require('fluent-ffmpeg');
 
 const app = express();
 const upload = multer({ dest: '/tmp/uploads/' });
@@ -46,10 +47,13 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
     const transcription = await transcribeAudio(audioPath);
     console.log(`[${dealId}] Transcription done: ${transcription.slice(0, 80)}...`);
 
-    // 2. Upload audio to Google Drive
+    // 2. Convert audio to MP3 and upload to Google Drive
+    console.log(`[${dealId}] Converting audio to MP3...`);
+    const mp3Path = audioPath + '.mp3';
+    await convertToMp3(audioPath, mp3Path);
     console.log(`[${dealId}] Uploading audio to Drive...`);
-    const audioFileName = `deal_${dealId}_audio_${Date.now()}.webm`;
-    const audioFileId = await uploadToDrive(audioPath, audioFileName, 'audio/webm', process.env.GOOGLE_DRIVE_AUDIO_FOLDER_ID);
+    const audioFileName = `deal_${dealId}_audio_${Date.now()}.mp3`;
+    const audioFileId = await uploadToDrive(mp3Path, audioFileName, 'audio/mpeg', process.env.GOOGLE_DRIVE_AUDIO_FOLDER_ID);
 
     // 3. Upload transcription text to Google Drive
     console.log(`[${dealId}] Uploading transcription to Drive...`);
@@ -67,6 +71,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 
     // Cleanup temp files
     fs.unlinkSync(audioPath);
+    if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
     fs.unlinkSync(textPath);
 
     console.log(`[${dealId}] Pipeline complete!`);
@@ -75,6 +80,8 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
   } catch (err) {
     console.error(`[${dealId}] Error:`, err.message);
     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+    const mp3Cleanup = audioPath + '.mp3';
+    if (fs.existsSync(mp3Cleanup)) fs.unlinkSync(mp3Cleanup);
     res.status(500).json({ error: err.message });
   }
 });
@@ -83,6 +90,17 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function convertToMp3(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioBitrate(128)
+      .toFormat('mp3')
+      .on('end', resolve)
+      .on('error', reject)
+      .save(outputPath);
+  });
+}
 
 async function transcribeAudio(filePath) {
   const webmPath = filePath + '.webm';
