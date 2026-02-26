@@ -57,8 +57,7 @@
     let timerInterval;
     let isPaused = false;
     
-    // Ссылка на ваш НОВЫЙ n8n аккаунт:
-    const webhookUrl = "https://yoanbonny.app.n8n.cloud/webhook/9accf4f9-84f9-431f-9acd-3aa18899585f";
+    const webhookUrl = "/upload";
 
     function startTimer() {
       timerInterval = setInterval(() => {
@@ -126,18 +125,18 @@
       const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
       const fd = new FormData();
       fd.append('audio', audioBlob, `deal_${id}.webm`);
-      fd.append('phone', id); 
+      fd.append('dealId', id);
 
       try {
-        await fetch(webhookUrl, { 
-          method: 'POST', 
-          body: fd,
-          mode: 'no-cors' 
-        });
-        
-        alert('Запись отправлена! Проверьте карточку сделки через 30 секунд.');
+        const res = await fetch(webhookUrl, { method: 'POST', body: fd });
+        if (res.ok) {
+          alert('Готово! Транскрипция добавлена в AmoCRM и сохранена в Google Drive.');
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('Ошибка сервера: ' + (err.error || res.status));
+        }
       } catch (e) {
-        alert('Ошибка связи с n8n');
+        alert('Ошибка соединения с сервером');
       }
       location.reload();
     }
