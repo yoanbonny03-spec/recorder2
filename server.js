@@ -85,8 +85,9 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function transcribeAudio(filePath) {
+  const { toFile } = await import('openai');
   const response = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(filePath),
+    file: await toFile(fs.createReadStream(filePath), 'audio.webm', { type: 'audio/webm' }),
     model: 'whisper-1',
     language: 'ru',
   });
