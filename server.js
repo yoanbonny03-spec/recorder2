@@ -105,26 +105,34 @@ function mimeToExt(mime) {
 
 // Call Whisper via REST API directly — explicit filename so format is always detected
 async function transcribeAudio(filePath, mimetype) {
-  const ext = mimeToExt(mimetype);
+  // Strip codec parameters (e.g. "audio/webm;codecs=opus" -> "audio/webm")
+  const baseMime = mimetype.split(';')[0].trim();
+  const ext = mimeToExt(baseMime);
   const filename = `audio.${ext}`;
-  console.log(`  whisper filename=${filename} contentType=${mimetype}`);
+  console.log(`  whisper filename=${filename} contentType=${baseMime} (original: ${mimetype})`);
 
   const form = new FormData();
-  form.append('file', fs.createReadStream(filePath), { filename, contentType: mimetype });
+  form.append('file', fs.createReadStream(filePath), { filename, contentType: baseMime });
   form.append('model', 'whisper-1');
   form.append('language', 'ru');
 
-  const { data } = await axios.post(
-    'https://api.openai.com/v1/audio/transcriptions',
-    form,
-    {
-      headers: {
-        ...form.getHeaders(),
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-    }
-  );
-  return data.text;
+  try {
+    const { data } = await axios.post(
+      'https://api.openai.com/v1/audio/transcriptions',
+      form,
+      {
+        headers: {
+          ...form.getHeaders(),
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+      }
+    );
+    return data.text;
+  } catch (err) {
+    const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    console.error(`  Whisper API error ${err.response?.status}: ${detail}`);
+    throw new Error(`Whisper error: ${detail}`);
+  }
 }
 
 function convertToMp3(inputPath, outputPath) {
