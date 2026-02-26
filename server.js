@@ -1,36 +1,22 @@
 const express = require('express');
 const multer = require('multer');
-const { OpenAI } = require('openai');
 const { google } = require('googleapis');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const FormData = require('form-data');
 const ffmpeg = require('fluent-ffmpeg');
 
 const app = express();
 
-// Save uploaded files with proper extension based on MIME type
-const storage = multer.diskStorage({
-  destination: '/tmp/uploads/',
-  filename: (req, file, cb) => {
-    const mimeToExt = {
-      'audio/webm': '.webm',
-      'audio/ogg': '.ogg',
-      'audio/mp4': '.mp4',
-      'audio/mpeg': '.mp3',
-      'audio/wav': '.wav',
-      'audio/x-m4a': '.m4a',
-      'video/webm': '.webm',
-    };
-    const ext = mimeToExt[file.mimetype] || '.webm';
-    cb(null, Date.now() + '-' + Math.random().toString(36).substr(2, 9) + ext);
-  },
-});
-const upload = multer({ storage });
+// Ensure upload dir exists
+if (!fs.existsSync('/tmp/uploads/')) {
+  fs.mkdirSync('/tmp/uploads/', { recursive: true });
+}
+
+const upload = multer({ dest: '/tmp/uploads/' });
 
 // ── Clients ──────────────────────────────────────────────────────────────────
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function getDriveClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
@@ -43,15 +29,14 @@ function getDriveClient() {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-// Serve frontend
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Main upload endpoint
 app.post('/upload', upload.single('audio'), async (req, res) => {
   const dealId = req.body.dealId;
   const audioPath = req.file?.path;
+  const mimetype = req.file?.mimetype || 'audio/webm';
 
   if (!dealId || !audioPath) {
     return res.status(400).json({ error: 'dealId and audio are required' });
@@ -60,36 +45,35 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
   const mp3Path = audioPath + '.mp3';
 
   try {
-    console.log(`[${dealId}] Starting pipeline...`);
-    console.log(`[${dealId}] Audio file: ${audioPath} (${req.file.mimetype})`);
+    console.log(`[${dealId}] Starting pipeline... mime=${mimetype}`);
 
-    // 1. Transcribe with Whisper (file already has correct extension)
+    // 1. Transcribe with Whisper via direct API call (explicit filename)
     console.log(`[${dealId}] Transcribing...`);
-    const transcription = await transcribeAudio(audioPath);
+    const transcription = await transcribeAudio(audioPath, mimetype);
     console.log(`[${dealId}] Transcription done: ${transcription.slice(0, 80)}...`);
 
-    // 2. Convert audio to MP3 and upload to Google Drive
+    // 2. Convert to MP3 and upload to Google Drive
     console.log(`[${dealId}] Converting to MP3...`);
     await convertToMp3(audioPath, mp3Path);
     console.log(`[${dealId}] Uploading audio to Drive...`);
     const audioFileName = `deal_${dealId}_audio_${Date.now()}.mp3`;
     const audioFileId = await uploadToDrive(mp3Path, audioFileName, 'audio/mpeg', process.env.GOOGLE_DRIVE_AUDIO_FOLDER_ID);
 
-    // 3. Upload transcription text to Google Drive
+    // 3. Upload transcription to Google Drive
     console.log(`[${dealId}] Uploading transcription to Drive...`);
     const textFileName = `deal_${dealId}_transcription_${Date.now()}.txt`;
     const textPath = `/tmp/uploads/${textFileName}`;
     fs.writeFileSync(textPath, transcription, 'utf8');
     const textFileId = await uploadToDrive(textPath, textFileName, 'text/plain', process.env.GOOGLE_DRIVE_TEXT_FOLDER_ID);
 
-    // 4. Send note to AmoCRM lead
+    // 4. Send note to AmoCRM
     console.log(`[${dealId}] Sending to AmoCRM...`);
     const driveAudioUrl = `https://drive.google.com/file/d/${audioFileId}/view`;
     const driveTextUrl = `https://drive.google.com/file/d/${textFileId}/view`;
     const noteText = `📝 Транскрипция встречи:\n\n${transcription}\n\n🎵 Аудио: ${driveAudioUrl}\n📄 Текст: ${driveTextUrl}`;
     await sendAmoCrmNote(dealId, noteText);
 
-    // Cleanup temp files
+    // Cleanup
     fs.unlinkSync(audioPath);
     if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
     fs.unlinkSync(textPath);
@@ -105,18 +89,40 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
   }
 });
 
-// Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function transcribeAudio(filePath) {
-  const response = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(filePath),
-    model: 'whisper-1',
-    language: 'ru',
-  });
-  return response.text;
+function mimeToExt(mime) {
+  if (mime.includes('mp4') || mime.includes('m4a')) return 'mp4';
+  if (mime.includes('ogg')) return 'ogg';
+  if (mime.includes('wav')) return 'wav';
+  if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3';
+  return 'webm';
+}
+
+// Call Whisper via REST API directly — explicit filename so format is always detected
+async function transcribeAudio(filePath, mimetype) {
+  const ext = mimeToExt(mimetype);
+  const filename = `audio.${ext}`;
+  console.log(`  whisper filename=${filename} contentType=${mimetype}`);
+
+  const form = new FormData();
+  form.append('file', fs.createReadStream(filePath), { filename, contentType: mimetype });
+  form.append('model', 'whisper-1');
+  form.append('language', 'ru');
+
+  const { data } = await axios.post(
+    'https://api.openai.com/v1/audio/transcriptions',
+    form,
+    {
+      headers: {
+        ...form.getHeaders(),
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+    }
+  );
+  return data.text;
 }
 
 function convertToMp3(inputPath, outputPath) {
@@ -132,34 +138,25 @@ function convertToMp3(inputPath, outputPath) {
 
 async function uploadToDrive(filePath, fileName, mimeType, folderId) {
   const drive = getDriveClient();
-
-  const fileMetadata = {
-    name: fileName,
-    ...(folderId && { parents: [folderId] }),
-  };
-
-  const media = {
-    mimeType,
-    body: fs.createReadStream(filePath),
-  };
-
   const response = await drive.files.create({
-    requestBody: fileMetadata,
-    media,
+    requestBody: {
+      name: fileName,
+      ...(folderId && { parents: [folderId] }),
+    },
+    media: {
+      mimeType,
+      body: fs.createReadStream(filePath),
+    },
     fields: 'id',
   });
-
   return response.data.id;
 }
 
 async function sendAmoCrmNote(dealId, text) {
   const domain = process.env.AMOCRM_DOMAIN;
   const token = process.env.AMOCRM_ACCESS_TOKEN;
-
-  const url = `https://${domain}/api/v4/leads/${dealId}/notes`;
-
   await axios.post(
-    url,
+    `https://${domain}/api/v4/leads/${dealId}/notes`,
     [{ note_type: 'common', params: { text } }],
     {
       headers: {
@@ -174,8 +171,7 @@ async function sendAmoCrmNote(dealId, text) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log('Required env vars:');
+  console.log(`Server v2 running on port ${PORT}`);
   console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? '✓' : '✗ MISSING');
   console.log('  GOOGLE_SERVICE_ACCOUNT_JSON:', process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? '✓' : '✗ MISSING');
   console.log('  GOOGLE_DRIVE_AUDIO_FOLDER_ID:', process.env.GOOGLE_DRIVE_AUDIO_FOLDER_ID ? '✓' : '✗ MISSING');
