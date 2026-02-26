@@ -176,7 +176,9 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server v2 running on port ${PORT}`);
   console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? '✓' : '✗ MISSING');
-  console.log('  GOOGLE_SERVICE_ACCOUNT_JSON:', process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? '✓' : '✗ MISSING');
+  console.log('  GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? '✓' : '✗ MISSING');
+  console.log('  GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? '✓' : '✗ MISSING');
+  console.log('  GOOGLE_REFRESH_TOKEN:', process.env.GOOGLE_REFRESH_TOKEN ? '✓' : '✗ MISSING');
   console.log('  GOOGLE_DRIVE_AUDIO_FOLDER_ID:', process.env.GOOGLE_DRIVE_AUDIO_FOLDER_ID ? '✓' : '✗ MISSING');
   console.log('  GOOGLE_DRIVE_TEXT_FOLDER_ID:', process.env.GOOGLE_DRIVE_TEXT_FOLDER_ID ? '✓' : '✗ MISSING');
   console.log('  AMOCRM_DOMAIN:', process.env.AMOCRM_DOMAIN ? '✓' : '✗ MISSING');
