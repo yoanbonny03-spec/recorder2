@@ -12,6 +12,7 @@
     "openai": "^4.28.0",
     "googleapis": "^140.0.0",
     "axios": "^1.6.7",
-    "form-data": "^4.0.0"
+    "form-data": "^4.0.0",
+    "fluent-ffmpeg": "^2.1.3"
   }
 }
