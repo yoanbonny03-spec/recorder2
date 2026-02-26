@@ -147,6 +147,7 @@ async function uploadToDrive(filePath, fileName, mimeType, folderId) {
       mimeType,
       body: fs.createReadStream(filePath),
     },
+    supportsAllDrives: true,
     fields: 'id',
   });
   return response.data.id;
