@@ -49,14 +49,14 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
     // 2. Upload audio to Google Drive
     console.log(`[${dealId}] Uploading audio to Drive...`);
     const audioFileName = `deal_${dealId}_audio_${Date.now()}.webm`;
-    const audioFileId = await uploadToDrive(audioPath, audioFileName, 'audio/webm');
+    const audioFileId = await uploadToDrive(audioPath, audioFileName, 'audio/webm', process.env.GOOGLE_DRIVE_AUDIO_FOLDER_ID);
 
     // 3. Upload transcription text to Google Drive
     console.log(`[${dealId}] Uploading transcription to Drive...`);
     const textFileName = `deal_${dealId}_transcription_${Date.now()}.txt`;
     const textPath = `/tmp/uploads/${textFileName}`;
     fs.writeFileSync(textPath, transcription, 'utf8');
-    const textFileId = await uploadToDrive(textPath, textFileName, 'text/plain');
+    const textFileId = await uploadToDrive(textPath, textFileName, 'text/plain', process.env.GOOGLE_DRIVE_TEXT_FOLDER_ID);
 
     // 4. Send note to AmoCRM lead
     console.log(`[${dealId}] Sending to AmoCRM...`);
@@ -93,9 +93,8 @@ async function transcribeAudio(filePath) {
   return response.text;
 }
 
-async function uploadToDrive(filePath, fileName, mimeType) {
+async function uploadToDrive(filePath, fileName, mimeType, folderId) {
   const drive = getDriveClient();
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
   const fileMetadata = {
     name: fileName,
@@ -142,7 +141,8 @@ app.listen(PORT, () => {
   console.log('Required env vars:');
   console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? '✓' : '✗ MISSING');
   console.log('  GOOGLE_SERVICE_ACCOUNT_JSON:', process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? '✓' : '✗ MISSING');
-  console.log('  GOOGLE_DRIVE_FOLDER_ID:', process.env.GOOGLE_DRIVE_FOLDER_ID ? '✓' : '✗ MISSING');
+  console.log('  GOOGLE_DRIVE_AUDIO_FOLDER_ID:', process.env.GOOGLE_DRIVE_AUDIO_FOLDER_ID ? '✓' : '✗ MISSING');
+  console.log('  GOOGLE_DRIVE_TEXT_FOLDER_ID:', process.env.GOOGLE_DRIVE_TEXT_FOLDER_ID ? '✓' : '✗ MISSING');
   console.log('  AMOCRM_DOMAIN:', process.env.AMOCRM_DOMAIN ? '✓' : '✗ MISSING');
   console.log('  AMOCRM_ACCESS_TOKEN:', process.env.AMOCRM_ACCESS_TOKEN ? '✓' : '✗ MISSING');
 });
