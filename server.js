@@ -103,17 +103,17 @@ function convertToMp3(inputPath, outputPath) {
 }
 
 async function transcribeAudio(filePath) {
-  const webmPath = filePath + '.webm';
-  fs.copyFileSync(filePath, webmPath);
+  const mp3Path = filePath + '.whisper.mp3';
+  await convertToMp3(filePath, mp3Path);
   try {
     const response = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(webmPath),
+      file: fs.createReadStream(mp3Path),
       model: 'whisper-1',
       language: 'ru',
     });
     return response.text;
   } finally {
-    fs.unlinkSync(webmPath);
+    if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
   }
 }
 
